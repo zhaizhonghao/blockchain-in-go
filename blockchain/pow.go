@@ -21,7 +21,9 @@ import (
 //Requirements:
 //The First few bytes must contain 0s
 
-const Difficulty = 12
+//The difficulty cannot be modifed once the blockchain has already stored in the database
+//If the protocol want to change the difficulty, it must replay the existed blockchain
+const Difficulty = 18
 
 type ProofOfWork struct {
 	Block  *Block
