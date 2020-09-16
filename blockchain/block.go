@@ -2,126 +2,38 @@ package blockchain
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
-	"fmt"
-	"log"
-
-	"github.com/dgraph-io/badger"
 )
 
-const (
-	//the path to store the databases
-	dbPath = "./tmp/blocks"
-)
-
-type Blockchain struct {
-	//Blocks []*Block
-
-	//use the Database to store the blockchian
-	LastHash []byte
-	//a key-value database in golang
-	Database *badger.DB
-}
-
-//To travase the blockchain in the database
-type BlockchainIterator struct {
-	CurrentHash []byte
-	Database    *badger.DB
-}
-
+//must ensure that at least one transaction is stored in one block
 type Block struct {
-	Hash     []byte
-	Data     []byte
-	PrevHash []byte
-	Nonce    int
-}
-
-func InitBlockchain() *Blockchain {
-	//return &Blockchain{[]*Block{Genesis()}}
-
-	var lastHash []byte
-
-	opts := badger.DefaultOptions(dbPath)
-	opts.Dir = dbPath
-	opts.ValueDir = dbPath
-
-	db, err := badger.Open(opts)
-	Handle(err)
-
-	//To write the database
-	err = db.Update(func(txn *badger.Txn) error {
-		//At first, try to fetch the last hash((lh) from the databased
-		if _, err := txn.Get([]byte("lh")); err == badger.ErrKeyNotFound {
-			//there is no blockchain in our database
-			fmt.Println("No existing blockchain found")
-			genesis := Genesis()
-			fmt.Println("Genesis block generated!")
-			//store the genesis block in key-value
-			//where the key is the hash of the block, and the value is the genesis block in bytes by serailizing
-			err = txn.Set(genesis.Hash, genesis.Serialize())
-			Handle(err)
-			//set the last hash of the blockchain
-			err = txn.Set([]byte("lh"), genesis.Hash)
-
-			lastHash = genesis.Hash
-			return err
-		} else {
-			//we already have the blockchain in our system
-			//we can set the lastHash to the lh in the database
-			item, err := txn.Get([]byte("lh"))
-			Handle(err)
-			err = item.Value(func(val []byte) error {
-				lastHash = append([]byte{}, val...)
-				return nil
-			})
-			return err
-		}
-	})
-
-	Handle(err)
-
-	blockchain := Blockchain{lastHash, db}
-
-	return &blockchain
-
+	Hash         []byte
+	Transactions []*Transaction
+	PrevHash     []byte
+	Nonce        int
 }
 
 //To create the gensis block
-func Genesis() *Block {
-	return CreateBlock("Genesis", []byte{})
+func Genesis(coinbase *Transaction) *Block {
+	return CreateBlock([]*Transaction{coinbase}, []byte{})
 }
 
-func (chain *Blockchain) AddBlock(data string) {
-	var lastHash []byte
-	//read the databased to fetch the last hash of the blockchain
-	err := chain.Database.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte("lh"))
-		Handle(err)
-		err = item.Value(func(val []byte) error {
-			lastHash = append([]byte{}, val...)
-			return nil
-		})
-		return err
-	})
-	Handle(err)
+func (b *Block) HashTransactions() []byte {
+	var txHashes [][]byte
+	var txHash [32]byte
 
-	newBlock := CreateBlock(data, lastHash)
-	//append a block to the blockchain in the database, and set the lh to the hash of the new block
-	err = chain.Database.Update(func(txn *badger.Txn) error {
-		//append the new block in the database
-		err := txn.Set(newBlock.Hash, newBlock.Serialize())
-		Handle(err)
-		//To set the lh to the hash of the new block
-		err = txn.Set([]byte("lh"), newBlock.Hash)
-		//change the LastHash of the blockchain in Memory
-		chain.LastHash = newBlock.Hash
+	for _, tx := range b.Transactions {
+		txHashes = append(txHashes, tx.ID)
+	}
+	//without using the merkle tree to ingest the transactions
+	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
 
-		return err
-	})
+	return txHash[:]
 }
 
-func CreateBlock(data string, prevHash []byte) *Block {
-	block := &Block{[]byte{}, []byte(data), prevHash, 0}
+func CreateBlock(txs []*Transaction, prevHash []byte) *Block {
+	block := &Block{[]byte{}, txs, prevHash, 0}
 	pow := NewProof(block)
 	//mining
 	nonce, hash := pow.Run()
@@ -155,35 +67,4 @@ func Deserialize(data []byte) *Block {
 	Handle(err)
 
 	return &block
-}
-
-func Handle(err error) {
-	if err != nil {
-		log.Panic(err)
-	}
-}
-
-func (chain *Blockchain) Iterator() *BlockchainIterator {
-	iter := &BlockchainIterator{chain.LastHash, chain.Database}
-	return iter
-}
-
-//iterate the blockchain until the genesis block
-func (iter *BlockchainIterator) Next() *Block {
-	var block *Block
-	err := iter.Database.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(iter.CurrentHash)
-		Handle(err)
-		err = item.Value(func(val []byte) error {
-			encodeBlock := append([]byte{}, val...)
-			block = Deserialize(encodeBlock)
-			return nil
-		})
-		return err
-	})
-	Handle(err)
-
-	iter.CurrentHash = block.PrevHash
-
-	return block
 }
