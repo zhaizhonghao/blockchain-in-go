@@ -62,14 +62,18 @@ func NewTransaction(from, to string, amount int, UTXO *UTXOSet) *Transaction {
 
 func CoinbaseTx(to, data string) *Transaction {
 	if data == "" {
-		data = fmt.Sprintf("Coins to %s", to)
+		//if data is empty set random data in the coinbase
+		randData := make([]byte, 24)
+		_, err := rand.Read(randData)
+		Handle(err)
+		data = fmt.Sprintf("%x", randData)
 	}
 
 	txin := TxInput{[]byte{}, -1, nil, []byte(data)}
-	txout := NewTXOutput(100, to)
+	txout := NewTXOutput(20, to)
 
 	tx := Transaction{nil, []TxInput{txin}, []TxOutput{*txout}}
-	tx.SetID()
+	tx.ID = tx.Hash()
 
 	return &tx
 }
