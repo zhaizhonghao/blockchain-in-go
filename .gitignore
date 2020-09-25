@@ -1,2 +1,4 @@
 *.vlog
 *.sst
+/tmp
+/.vs
