@@ -23,19 +23,15 @@ type Transaction struct {
 }
 
 //only transfer some tokens to one entity
-func NewTransaction(from, to string, amount int, UTXO *UTXOSet) *Transaction {
+func NewTransaction(w *wallet.Wallet, to string, amount int, UTXO *UTXOSet) *Transaction {
 	var inputs []TxInput
 	var outputs []TxOutput
 
-	wallets, err := wallet.CreateWallets()
-	Handle(err)
-	w := wallets.GetWallet(from)
 	pubKeyHash := wallet.PublicKeyHash(w.PublicKey)
-
 	acc, validOutputs := UTXO.FindSpendableOutputs(pubKeyHash, amount)
 
 	if acc < amount {
-		log.Panic("Error:not enough funds")
+		log.Panic("Error: not enough funds")
 	}
 
 	for txid, outs := range validOutputs {
@@ -47,6 +43,9 @@ func NewTransaction(from, to string, amount int, UTXO *UTXOSet) *Transaction {
 			inputs = append(inputs, input)
 		}
 	}
+
+	from := fmt.Sprintf("%s", w.Address())
+
 	outputs = append(outputs, *NewTXOutput(amount, to))
 
 	if acc > amount {
@@ -54,7 +53,7 @@ func NewTransaction(from, to string, amount int, UTXO *UTXOSet) *Transaction {
 	}
 
 	tx := Transaction{nil, inputs, outputs}
-	tx.SetID()
+	tx.ID = tx.Hash()
 	UTXO.Blockchain.SignTransaction(&tx, w.PrivateKey)
 
 	return &tx
@@ -190,19 +189,19 @@ func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 		s := big.Int{}
 		sigLen := len(in.Signature)
 		r.SetBytes(in.Signature[:(sigLen)/2])
-		r.SetBytes(in.Signature[(sigLen)/2:])
+		s.SetBytes(in.Signature[(sigLen)/2:])
 
 		x := big.Int{}
 		y := big.Int{}
 		keyLen := len(in.PubKey)
 		x.SetBytes(in.PubKey[:(keyLen / 2)])
-		x.SetBytes(in.PubKey[(keyLen / 2):])
+		y.SetBytes(in.PubKey[(keyLen / 2):])
 
 		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
 		if ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) == false {
+			fmt.Println("key pair mismatch")
 			return false
 		}
-
 	}
 	return true
 
@@ -227,4 +226,13 @@ func (tx Transaction) String() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func DeserializeTransaction(data []byte) Transaction {
+	var transaction Transaction
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&transaction)
+	Handle(err)
+	return transaction
 }
