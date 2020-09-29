@@ -500,6 +500,5 @@ func StartServer(nodeID, minerAddress string) {
 			log.Panic(err)
 		}
 		go HandleConnection(conn, chain)
-
 	}
 }
